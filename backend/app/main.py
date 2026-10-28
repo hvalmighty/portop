@@ -67,17 +67,35 @@ def run_migrations() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _configure_logging()
-    run_migrations()
-    if settings.seed_demo_data:
-        from .seed import seed
-
-        db = SessionLocal()
+    log.info("starting", extra={"user": f"db={settings.database_url.split('@')[-1].split('?')[0]} mode={settings.market_mode}"})
+    # Several serverless instances may cold-start at once against the same Postgres: serialise schema + seed.
+    lock = engine.connect() if engine.dialect.name == "postgresql" else None
+    try:
+        if lock is not None:
+            lock.execute(text("SELECT pg_advisory_lock(424242)"))
         try:
-            if seed(db):
-                log.info("demo dataset seeded")
-            run_post_trade_scan(db)
-        finally:
-            db.close()
+            run_migrations()
+        except Exception:
+            log.exception("database migration failed - check MPOWER_DATABASE_URL / DATABASE_URL")
+            raise
+        if settings.seed_demo_data:
+            from .seed import seed
+
+            db = SessionLocal()
+            try:
+                if seed(db):
+                    log.info("demo dataset seeded")
+                run_post_trade_scan(db)
+            except Exception:
+                db.rollback()
+                log.exception("demo data seeding failed")
+                raise
+            finally:
+                db.close()
+    finally:
+        if lock is not None:
+            lock.execute(text("SELECT pg_advisory_unlock(424242)"))
+            lock.close()
     task = None
     if settings.market_sim_enabled and settings.market_mode == "stream":
         task = asyncio.create_task(run_feed(SimulatedFeed(settings.market_tick_seconds), settings.market_tick_seconds))

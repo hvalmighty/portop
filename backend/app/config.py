@@ -1,7 +1,9 @@
 """Application settings, loaded from environment variables (prefix MPOWER_)."""
 
+import hashlib
 import logging
 import os
+import tempfile
 from functools import lru_cache
 
 from pydantic import Field, model_validator
@@ -23,7 +25,7 @@ class Settings(BaseSettings):
 
     env: str = "development"
     database_url: str = ""
-    jwt_secret: str = Field(default=DEV_SECRET, min_length=32)
+    jwt_secret: str = Field(default=DEV_SECRET, min_length=1)
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 60
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:8080"]
@@ -38,8 +40,9 @@ class Settings(BaseSettings):
 
     @property
     def serverless(self) -> bool:
-        """True on Vercel: no always-on process, so no background loops."""
-        return bool(os.environ.get("VERCEL"))
+        """True on Vercel / AWS Lambda: no always-on process, so no background loops."""
+        return any(os.environ.get(k) for k in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME",
+                                               "LAMBDA_TASK_ROOT"))
 
     @property
     def market_mode(self) -> str:
@@ -51,8 +54,14 @@ class Settings(BaseSettings):
         # Explicit setting wins, then the variables Vercel/Neon integrations inject, then a sensible default.
         url = (self.database_url or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "").strip()
         if not url:
-            url = "sqlite:////tmp/mpower.db" if self.serverless else "sqlite:///./mpower.db"
+            # serverless file systems are read-only except the temp dir
+            url = "sqlite:////tmp/mpower.db" if self.serverless or not os.access(".", os.W_OK) else "sqlite:///./mpower.db"
         self.database_url = _normalise_db_url(url)
+        if self.database_url == "sqlite:///./mpower.db" and not os.access(".", os.W_OK):
+            self.database_url = f"sqlite:///{tempfile.gettempdir()}/mpower.db"
+        # accept any secret a user pastes into a dashboard; short ones are stretched to a full-length key
+        if len(self.jwt_secret) < 32:
+            self.jwt_secret = hashlib.sha256(self.jwt_secret.encode()).hexdigest()
         return self
 
 
