@@ -58,7 +58,7 @@ class Hub:
         self.last: list[dict] = []
 
     async def connect(self, ws: WebSocket) -> None:
-        await ws.accept()
+        """Register an already-accepted, authenticated socket."""
         self.clients.add(ws)
         if self.last:
             await ws.send_text(json.dumps({"type": "ticks", "data": self.last}))

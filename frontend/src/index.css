@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: #0a0d11;
+  --color-panel: #0f1419;
+  --color-panel-2: #131a21;
+  --color-raised: #182029;
+  --color-line: #1e2730;
+  --color-line-2: #2a3540;
+  --color-fg: #e6edf3;
+  --color-dim: #9aa7b4;
+  --color-mute: #6b7785;
+  --color-accent: #18c4cc;
+  --color-accent-2: #0f8f96;
+  --color-up: #3ccf6e;
+  --color-down: #ff5a5f;
+  --color-warn: #f0b429;
+  --color-info: #5aa8ff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* dense uppercase label used across the terminal UI */
+.lbl {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 6px;
+}
+
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.ticker-track {
+  animation: ticker 90s linear infinite;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes flash-up {
+  from { background: rgba(60, 207, 110, 0.25); }
+  to { background: transparent; }
+}
+@keyframes flash-down {
+  from { background: rgba(255, 90, 95, 0.25); }
+  to { background: transparent; }
+}
+.flash-up { animation: flash-up 0.9s ease-out; }
+.flash-down { animation: flash-down 0.9s ease-out; }
+
+input,
+select,
+textarea {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track,
+  .flash-up,
+  .flash-down {
+    animation: none;
+  }
+}

@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mpower
+      POSTGRES_USER: mpower
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mpower-local-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mpower -d mpower"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MPOWER_ENV: ${MPOWER_ENV:-development}
+      MPOWER_DATABASE_URL: postgresql+psycopg://mpower:${POSTGRES_PASSWORD:-mpower-local-only}@db:5432/mpower
+      MPOWER_JWT_SECRET: ${MPOWER_JWT_SECRET:-change-me-local-only-0000000000000000}
+      MPOWER_SEED_DEMO_DATA: ${MPOWER_SEED_DEMO_DATA:-true}
+      MPOWER_DEMO_PASSWORD: ${MPOWER_DEMO_PASSWORD:-Mpower@2026!}
+      MPOWER_MARKET_SIM_ENABLED: ${MPOWER_MARKET_SIM_ENABLED:-true}
+      MPOWER_CORS_ORIGINS: '["http://localhost:8080"]'
+    expose:
+      - "8000"
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

@@ -218,7 +218,7 @@ def seed(db: Session) -> bool:
         db.add(a)
         db.flush()
         weights = MODELS[model][3]
-        lines = {s: w * (1 + prng.uniform(-0.12, 0.12)) for s, w in weights.items() if s != "CASH" and s not in restr}
+        lines = {s: w * (1 + prng.uniform(-0.3, 0.3)) for s, w in weights.items() if s != "CASH" and s not in restr}
         scale = (100 - weights.get("CASH", 0) - prng.uniform(0, 1.5)) / sum(lines.values())  # realistic drift
         invested = 0.0
         for sym, wt in lines.items():

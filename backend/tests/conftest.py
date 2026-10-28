@@ -4,7 +4,8 @@ import tempfile
 import pytest
 
 _tmp = tempfile.mkdtemp()
-os.environ["MPOWER_DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+# CI can point the suite at Postgres with MPOWER_TEST_DATABASE_URL (must be an empty database)
+os.environ["MPOWER_DATABASE_URL"] = os.environ.get("MPOWER_TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["MPOWER_MARKET_SIM_ENABLED"] = "false"
 os.environ["MPOWER_JWT_SECRET"] = "test-secret-0123456789abcdef-0123456789"
 

@@ -90,9 +90,10 @@ def update_rule(rid: int, body: RuleUpdate, user: User = Depends(require("compli
 
 @router.get("/breaches")
 def list_breaches(
-    status: BreachStatus | None = None, account: str | None = None, limit: int = Query(500, le=5000),
-    user: User = Depends(require("compliance:read")), db: Session = Depends(get_db),
+    status: BreachStatus | None = None, account: str | None = None, entity: str | None = None,
+    limit: int = Query(500, le=5000), user: User = Depends(require("compliance:read")), db: Session = Depends(get_db),
 ):
+    check_entity(user, entity)
     q = db.query(Breach).options(joinedload(Breach.rule), joinedload(Breach.account)).join(Account)
     allowed = allowed_entities(user)
     if allowed is not None:
@@ -101,6 +102,8 @@ def list_breaches(
         q = q.filter(Breach.status == status)
     if account:
         q = q.filter(Account.code == account)
+    if entity:
+        q = q.filter(Account.entity_code == entity)
     return [breach_out(b) for b in q.order_by(Breach.detected_at.desc()).limit(limit)]
 
 

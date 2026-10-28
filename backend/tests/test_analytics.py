@@ -63,3 +63,10 @@ def test_reconciliation_and_reports(client, auth):
     assert {"QTY_MISMATCH", "MISSING_IN_BOOK"} <= types
     csv_r = client.get("/api/v1/reports/holdings.csv?entity=SG", headers=auth("ops.garcia"))
     assert csv_r.headers["content-type"].startswith("text/csv") and "MULTI-06" in csv_r.text
+
+
+def test_rebalance_respects_client_restrictions(client, auth):
+    p = client.post("/api/v1/rebalance/preview", headers=auth("pm.santos"),
+                    json={"accounts": ["PH-BAL-01"], "mode": "full"}).json()["proposals"][0]
+    assert all(line["symbol"] != "JFC" for line in p["lines"])
+    assert p["compliance"]["status"] != "FAIL"

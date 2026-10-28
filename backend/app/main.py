@@ -145,8 +145,14 @@ def readyz():
 
 @app.websocket("/ws/market")
 async def market_ws(ws: WebSocket):
-    token = ws.query_params.get("token")
-    if not token or decode_token(token) is None:
+    """Clients authenticate in-band: first message must be {"type": "auth", "token": "<jwt>"} within 5s."""
+    await ws.accept()
+    try:
+        first = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=5))
+    except (TimeoutError, ValueError, WebSocketDisconnect):
+        await ws.close(code=4401)
+        return
+    if not isinstance(first, dict) or decode_token(str(first.get("token") or "")) is None:
         await ws.close(code=4401)
         return
     await hub.connect(ws)

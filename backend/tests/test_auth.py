@@ -1,3 +1,6 @@
+import json
+
+
 def test_health(client):
     assert client.get("/healthz").json() == {"status": "ok"}
     assert client.get("/readyz").json()["status"] == "ready"
@@ -33,3 +36,17 @@ def test_admin_unlocks_and_password_policy(client, auth):
     r = client.post("/api/v1/system/users", headers=h, json={
         "username": "weak.user", "full_name": "Weak", "email": "w@example.com", "role": "VIEWER", "password": "short"})
     assert r.status_code == 422
+
+
+def test_websocket_requires_auth(client, auth):
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+
+    with client.websocket_connect("/ws/market") as ws:
+        ws.send_text('{"type": "auth", "token": "bogus"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+    token = auth("viewer")["Authorization"].split()[1]
+    with client.websocket_connect("/ws/market") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": token}))
+        ws.send_text("ping")  # authenticated sockets stay open

@@ -30,8 +30,12 @@ def drift(db: Session, snap: Snapshot, model: ModelPortfolio) -> dict:
         if abs(h.qty) > 1e-9 and h.inst.asset_class != AssetClass.DERIV:
             cur[h.inst.symbol] = fx.convert(market_value(h.inst, h.qty, h.avg_px), h.inst.ccy, snap.account.base_ccy) / nav * 100
     cur["CASH"] = snap.cash / nav * 100 if nav else 0
-    targets = dict(v.weights)
+    targets = {k: float(w) for k, w in v.weights.items()}
     targets.setdefault("CASH", 0.0)
+    # client-specific restrictions override the model: the restricted weight is held in cash
+    for sym in snap.account.restrictions or []:
+        if sym in targets:
+            targets["CASH"] += targets.pop(sym)
     rows = []
     for sym in sorted(set(cur) | set(targets)):
         c, t = cur.get(sym, 0.0), float(targets.get(sym, 0.0))
