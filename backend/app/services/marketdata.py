@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import random
+import time
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -29,27 +30,67 @@ class PriceSource(Protocol):
     def tick(self) -> list[dict]: ...
 
 
+def _tick_row(i: Instrument) -> dict:
+    chg = (i.price / i.prev_close - 1) * 100 if i.prev_close else 0
+    return {"symbol": i.symbol, "price": i.price, "chg_pct": round(chg, 4), "ccy": i.ccy,
+            "asset_class": i.asset_class.value}
+
+
+def advance_prices(db, rng: random.Random, seconds: float) -> list[dict]:
+    """Move every active mark by a random-walk step covering `seconds` of (accelerated) market time."""
+    dt = max(seconds, 0) / (252 * 6.5 * 3600)  # fraction of a trading year
+    out = []
+    for i in db.query(Instrument).filter(Instrument.is_active.is_(True)).all():
+        vol = i.vol if i.asset_class != AssetClass.FI else min(i.vol, 0.06)
+        shock = rng.gauss(0, 1) * vol * math.sqrt(dt) * 8  # amplified for a lively demo
+        i.price = round(max(i.price * math.exp(shock), 0.0001), 6)
+        i.updated_at = datetime.now(timezone.utc)
+        out.append(_tick_row(i))
+    db.commit()
+    return out
+
+
 class SimulatedFeed:
     def __init__(self, tick_seconds: float, seed: int | None = None):
-        self.dt = tick_seconds / (252 * 6.5 * 3600)  # fraction of a trading year
+        self.seconds = tick_seconds
         self.rng = random.Random(seed)
 
     def tick(self) -> list[dict]:
         db = SessionLocal()
         try:
-            out = []
-            for i in db.query(Instrument).filter(Instrument.is_active.is_(True)).all():
-                vol = i.vol if i.asset_class != AssetClass.FI else min(i.vol, 0.06)
-                shock = self.rng.gauss(0, 1) * vol * math.sqrt(self.dt) * 8  # amplified for a lively demo
-                i.price = round(max(i.price * math.exp(shock), 0.0001), 6)
-                i.updated_at = datetime.now(timezone.utc)
-                chg = (i.price / i.prev_close - 1) * 100 if i.prev_close else 0
-                out.append({"symbol": i.symbol, "price": i.price, "chg_pct": round(chg, 4), "ccy": i.ccy,
-                            "asset_class": i.asset_class.value})
-            db.commit()
-            return out
+            return advance_prices(db, self.rng, self.seconds)
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------- serverless (poll) mode
+_poll_rng = random.Random()
+_last_scan = 0.0
+
+
+def poll_ticks(db, tick_seconds: float, scan_every: float = 60.0) -> dict:
+    """Serverless replacement for the feed loop: advance marks lazily when they are read.
+
+    Marks move at most once per `tick_seconds` across all instances (the last update time lives in the
+    database), and the post-trade / passive-breach scan runs at most once a minute per instance.
+    """
+    global _last_scan
+    latest = db.query(Instrument.updated_at).order_by(Instrument.updated_at.desc()).limit(1).scalar()
+    now = datetime.now(timezone.utc)
+    if latest is not None and latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    elapsed = (now - latest).total_seconds() if latest else tick_seconds
+    if elapsed >= tick_seconds:
+        # cap the step so a long idle period doesn't produce a huge jump
+        ticks = advance_prices(db, _poll_rng, min(elapsed, tick_seconds * 3))
+    else:
+        ticks = [_tick_row(i) for i in db.query(Instrument).filter(Instrument.is_active.is_(True)).all()]
+    scan = None
+    mono = time.monotonic()
+    if mono - _last_scan >= scan_every:
+        _last_scan = mono
+        scan = run_post_trade_scan(db)
+    return {"ts": now.isoformat(), "data": ticks, "compliance": scan}
 
 
 class Hub:

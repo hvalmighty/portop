@@ -2,6 +2,7 @@ from collections.abc import Iterator
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from .config import get_settings
 
@@ -14,6 +15,9 @@ def _make_engine(url: str):
     kwargs: dict = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    elif get_settings().serverless:
+        # serverless instances come and go: don't hold idle connections (use the provider's pooled URL)
+        kwargs["poolclass"] = NullPool
     eng = create_engine(url, **kwargs)
     if url.startswith("sqlite"):
 

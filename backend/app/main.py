@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -18,10 +19,11 @@ from sqlalchemy import text
 from .api import auth, compliance_api, models_api, ops, orders, portfolio, risk_api, system
 from .audit import client_ip_var, request_id_var
 from .config import get_settings
-from .db import SessionLocal, engine
-from .security import decode_token
+from .db import SessionLocal, engine, get_db
+from .models import User
+from .security import decode_token, require
 from .services.compliance import run_post_trade_scan
-from .services.marketdata import SimulatedFeed, hub, run_feed
+from .services.marketdata import SimulatedFeed, hub, poll_ticks, run_feed
 
 settings = get_settings()
 
@@ -77,7 +79,7 @@ async def lifespan(app: FastAPI):
         finally:
             db.close()
     task = None
-    if settings.market_sim_enabled:
+    if settings.market_sim_enabled and settings.market_mode == "stream":
         task = asyncio.create_task(run_feed(SimulatedFeed(settings.market_tick_seconds), settings.market_tick_seconds))
     yield
     if task:
@@ -143,6 +145,20 @@ def readyz():
     return {"status": "ready", "market_feed": settings.market_sim_enabled, "ws_clients": len(hub.clients)}
 
 
+@app.get(f"{API}/market/config", tags=["market"])
+def market_config():
+    """Tells the web client whether to subscribe over WebSocket ('stream') or poll ('poll', serverless)."""
+    return {"mode": settings.market_mode, "interval_ms": int(max(settings.market_tick_seconds, 1) * 1000) + 1000}
+
+
+@app.get(f"{API}/market/ticks", tags=["market"])
+def market_ticks(_: User = Depends(require("portfolio:read")), db=Depends(get_db)):
+    """Latest marks. In poll mode this also advances the simulated market and the periodic compliance scan."""
+    if settings.market_sim_enabled and settings.market_mode == "poll":
+        return poll_ticks(db, settings.market_tick_seconds)
+    return {"data": hub.last, "compliance": None}
+
+
 @app.websocket("/ws/market")
 async def market_ws(ws: WebSocket):
     """Clients authenticate in-band: first message must be {"type": "auth", "token": "<jwt>"} within 5s."""
@@ -161,3 +177,10 @@ async def market_ws(ws: WebSocket):
             await ws.receive_text()  # keepalive pings from the client
     except WebSocketDisconnect:
         hub.disconnect(ws)
+
+
+# Serve the built web app from the same deployment when it is present (Vercel single-project deploy).
+# Docker keeps the web app in its own nginx container, so the directory is absent there.
+_frontend = Path(os.environ.get("MPOWER_FRONTEND_DIR", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
+if (_frontend / "index.html").is_file():
+    app.frontend("/", directory=str(_frontend), fallback="index.html")

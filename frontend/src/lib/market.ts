@@ -1,10 +1,13 @@
 import { useSyncExternalStore } from "react";
-import { tokenStore } from "./api";
+import { api, tokenStore } from "./api";
 import type { Tick } from "./types";
 
 type Listener = () => void;
 
-/** Live market data over WebSocket with exponential-backoff reconnect. */
+/**
+ * Live market data. 'stream' mode (Docker / always-on server): WebSocket with exponential-backoff reconnect.
+ * 'poll' mode (serverless, e.g. Vercel): fetch /market/ticks on an interval.
+ */
 class MarketStore {
   private ticks: Tick[] = [];
   private bySymbol = new Map<string, Tick>();
@@ -16,12 +19,42 @@ class MarketStore {
   status: "connecting" | "live" | "offline" = "offline";
   compliance = 0; // increments when a compliance scan changes breaches
 
+  private poller: number | undefined;
+  private started = false;
+
   start() {
-    if (this.ws || !tokenStore.get()) return;
-    this.connect();
+    if (this.started || !tokenStore.get()) return;
+    this.started = true;
+    this.setStatus("connecting");
+    api<{ mode: "stream" | "poll"; interval_ms: number }>("/market/config")
+      .then((cfg) => (cfg.mode === "poll" ? this.poll(cfg.interval_ms) : this.connect()))
+      .catch(() => this.connect());
+  }
+
+  private poll(interval: number) {
+    let failures = 0;
+    const once = async () => {
+      if (!this.started) return;
+      try {
+        const r = await api<{ data: Tick[]; compliance: { opened: number; resolved: number } | null }>("/market/ticks");
+        failures = 0;
+        this.ticks = r.data;
+        this.bySymbol = new Map(r.data.map((t) => [t.symbol, t]));
+        if (r.compliance && (r.compliance.opened || r.compliance.resolved)) this.compliance += 1;
+        this.status = "live";
+      } catch {
+        failures += 1;
+        this.status = failures > 2 ? "offline" : "connecting";
+      }
+      this.emit();
+      this.poller = window.setTimeout(once, document.hidden ? interval * 4 : interval);
+    };
+    once();
   }
 
   stop() {
+    this.started = false;
+    window.clearTimeout(this.poller);
     window.clearTimeout(this.timer);
     window.clearInterval(this.ping);
     this.ws?.close();
@@ -55,7 +88,7 @@ class MarketStore {
       window.clearInterval(this.ping);
       this.ws = null;
       this.setStatus("offline");
-      if (ev.code === 4401 || !tokenStore.get()) return;
+      if (ev.code === 4401 || !tokenStore.get() || !this.started) return;
       const delay = Math.min(30_000, 1000 * 2 ** this.retry++);
       this.timer = window.setTimeout(() => this.connect(), delay);
     };

@@ -34,6 +34,27 @@ npm install
 npm run dev                                      # http://localhost:5173, proxies /api and /ws to :8000
 ```
 
+### Vercel (demo)
+
+The repo deploys to Vercel as **one project** — the FastAPI API and the built web app on the same URL.
+
+1. Vercel → **Add New → Project** → import this repository. Leave **Root Directory** as the repo root; Vercel
+   detects FastAPI (`main.py`) and `vercel.json` builds the web app.
+2. **Environment variables** (Project → Settings → Environment Variables):
+   - `MPOWER_JWT_SECRET` — any random 32+ character string (`openssl rand -hex 32`). **Set this**; the repo is public.
+   - `MPOWER_DEMO_PASSWORD` — the password for the demo users.
+3. **Deploy.** That's it for a quick demo.
+
+**Keep data between visits (recommended):** without a database the app uses SQLite in the function's `/tmp`, which is
+re-seeded whenever Vercel starts a fresh instance — orders and breaches you create will disappear after idle periods.
+For a stable demo, add **Storage → Neon (Postgres)** in the Vercel dashboard and connect it to the project; it injects
+`DATABASE_URL`, which the app picks up automatically (schema and demo data are created on first start). Redeploy.
+
+How it differs from the Docker deployment: there is no always-on process on Vercel, so the simulated market moves
+when prices are requested (the UI polls every ~3 s instead of using a WebSocket), and the post-trade / passive
+breach scan runs at most once a minute as part of those requests. The first request after an idle period takes a
+few seconds while Vercel starts the function and runs migrations.
+
 ### Demo users
 
 All demo users share the password set in `MPOWER_DEMO_PASSWORD` (default `Mpower@2026!`).
