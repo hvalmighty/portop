@@ -10,6 +10,7 @@ import Portfolio from "./pages/Portfolio";
 const AccountDetail = lazy(() => import("./pages/AccountDetail"));
 const Blotter = lazy(() => import("./pages/Blotter"));
 const Models = lazy(() => import("./pages/Models"));
+const Mandates = lazy(() => import("./pages/Mandates"));
 const Rebalance = lazy(() => import("./pages/Rebalance"));
 const Optimizer = lazy(() => import("./pages/Optimizer"));
 const Compliance = lazy(() => import("./pages/Compliance"));
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/accounts/:code" element={g("portfolio:read", <AccountDetail />)} />
           <Route path="/blotter" element={g("portfolio:read", <Blotter />)} />
           <Route path="/models" element={g("portfolio:read", <Models />)} />
+          <Route path="/mandates" element={g("portfolio:read", <Mandates />)} />
           <Route path="/rebalance" element={g("portfolio:read", <Rebalance />)} />
           <Route path="/optimizer" element={g("optimizer:run", <Optimizer />)} />
           <Route path="/compliance" element={g("compliance:read", <Compliance />)} />

@@ -83,13 +83,43 @@ class ModelVersionIn(BaseModel):
         return w
 
 
+class MandateIn(BaseModel):
+    """Mandate for a BDO-style sample portfolio: what it may hold, how big a position may be, and its goal."""
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    asset_class_label: str = Field(default="", max_length=80)
+    universe: list[str] = Field(min_length=2, max_length=60)
+    universe_source: str = Field(default="", max_length=300)
+    max_weight_pct: float = Field(gt=0, le=100)
+    max_weight_basis: str = Field(default="", max_length=60)
+    benchmark_weights: dict[str, float] = Field(min_length=1)
+    excess_return_bps: int = Field(ge=0, le=2000)
+
+    @field_validator("universe")
+    @classmethod
+    def unique_universe(cls, u: list[str]) -> list[str]:
+        if len(set(u)) != len(u):
+            raise ValueError("Universe contains duplicate securities")
+        return u
+
+    @field_validator("benchmark_weights")
+    @classmethod
+    def blend_sums_to_100(cls, w: dict[str, float]) -> dict[str, float]:
+        if any(v <= 0 for v in w.values()):
+            raise ValueError("Benchmark weights must be positive")
+        tot = sum(w.values())
+        if abs(tot - 100) > 0.01:
+            raise ValueError(f"Benchmark weights must sum to 100 (got {tot:.2f})")
+        return w
+
+
 class ModelIn(BaseModel):
     code: str = Field(pattern=r"^[A-Z0-9][A-Z0-9\-_]{1,31}$")
     name: str = Field(min_length=3, max_length=120)
     benchmark: str = ""
     tolerance_pct: float = Field(default=2.0, gt=0, le=25)
-    weights: dict[str, float]
+    weights: dict[str, float] = Field(default_factory=dict)  # optional: a mandate model can start empty
     rationale: str = "Initial version"
+    mandate: MandateIn | None = None
 
 
 class RebalanceIn(BaseModel):
