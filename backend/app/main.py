@@ -80,11 +80,13 @@ async def lifespan(app: FastAPI):
             raise
         if settings.seed_demo_data:
             from .seed import seed
+            from .services.scenarios import seed_bdo_scenarios
 
             db = SessionLocal()
             try:
                 if seed(db):
                     log.info("demo dataset seeded")
+                seed_bdo_scenarios(db)  # idempotent: also upgrades databases seeded before BDO scenarios existed
                 run_post_trade_scan(db)
             except Exception:
                 db.rollback()

@@ -142,6 +142,8 @@ class ModelPortfolio(Base):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="")
     benchmark: Mapped[str] = mapped_column(String(120), default="")
+    # mandate: currency, universe, max_weight_pct, benchmark_weights {symbol: pct}, excess_return_bps
+    mandate: Mapped[dict] = mapped_column(JSON, default=dict)
     tolerance_pct: Mapped[float] = mapped_column(Float, default=2.0)  # drift band, % points
     versions: Mapped[list[ModelVersion]] = relationship(
         back_populates="model", order_by="ModelVersion.version", cascade="all, delete-orphan"

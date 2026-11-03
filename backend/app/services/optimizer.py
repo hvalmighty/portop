@@ -86,6 +86,12 @@ def optimise(inp: OptInputs, objective: str) -> np.ndarray:
     raise OptimizationError(f"Unknown objective {objective}")
 
 
+def max_return(inp: OptInputs) -> float:
+    """Highest expected return achievable under the weight and class constraints."""
+    w = _solve(inp, lambda w: -(w @ inp.mu))
+    return float(w @ inp.mu)
+
+
 def stats(w: np.ndarray, mu: np.ndarray, cov: np.ndarray, rf: float) -> dict:
     ret = float(w @ mu)
     vol = float(np.sqrt(max(w @ cov @ w, 0)))
