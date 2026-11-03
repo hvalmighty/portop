@@ -11,6 +11,7 @@ from ..schemas import ModelIn, ModelVersionIn, RebalanceIn
 from ..security import require
 from ..services.compliance import load_snapshot
 from ..services.rebalance import accounts_for_model, active_version, drift, propose
+from ..services.scenarios import check_mandate, scenario_result
 from ..services.trading import create_order
 from ..services.valuation import Fx
 from .common import get_account
@@ -26,7 +27,7 @@ def version_out(v: ModelVersion) -> dict:
 
 def model_out(db: Session, m: ModelPortfolio, detail: bool = False) -> dict:
     av = active_version(m)
-    out = {"id": m.id, "code": m.code, "name": m.name, "benchmark": m.benchmark, "tolerance_pct": m.tolerance_pct,
+    out = {"id": m.id, "code": m.code, "name": m.name, "benchmark": m.benchmark, "mandate": m.mandate or {}, "tolerance_pct": m.tolerance_pct,
            "active_version": av.version if av else None, "weights": av.weights if av else {},
            "accounts": [a.code for a in accounts_for_model(db, m.id)],
            "pending_versions": sum(1 for v in m.versions if v.status == "DRAFT")}
@@ -60,6 +61,18 @@ def get_model(code: str, _: User = Depends(require("portfolio:read")), db: Sessi
     return model_out(db, _model(db, code), detail=True)
 
 
+@router.post("/models/{code}/optimise")
+def optimise_model(code: str, user: User = Depends(require("optimizer:run")), db: Session = Depends(get_db)):
+    """Optimise against the model's mandate (universe, cap, benchmark, excess-return goal). Nothing is saved:
+    the PM reviews the weights and proposes them as a DRAFT version, which a checker then approves."""
+    m = _model(db, code)
+    res = scenario_result(db, m)
+    audit(db, user.username, "MODEL_OPTIMISE", "model", code,
+          after={"feasible": res.get("feasible"), "excess_bps": res.get("excess_return_bps")})
+    db.commit()
+    return res
+
+
 @router.post("/models", status_code=201)
 def create_model(body: ModelIn, user: User = Depends(require("model:write")), db: Session = Depends(get_db)):
     if db.query(ModelPortfolio).filter(ModelPortfolio.code == body.code).count():
@@ -81,6 +94,7 @@ def propose_version(code: str, body: ModelVersionIn, user: User = Depends(requir
                     db: Session = Depends(get_db)):
     m = _model(db, code)
     _validate_symbols(db, body.weights)
+    check_mandate(m, body.weights)
     v = ModelVersion(version=max((x.version for x in m.versions), default=0) + 1, weights=body.weights,
                      rationale=body.rationale, status="DRAFT", created_by=user.username)
     m.versions.append(v)
