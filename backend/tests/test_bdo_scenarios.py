@@ -73,3 +73,37 @@ def test_seeding_is_idempotent():
         assert result["created"] == []
     finally:
         db.close()
+
+
+MANDATE = {
+    "currency": "USD", "asset_class_label": "Test", "universe": ["MSFT", "NVDA", "AMZN", "GOOGL"],
+    "universe_source": "test", "max_weight_pct": 40, "max_weight_basis": "per stock",
+    "benchmark_weights": {"MSCIACWI": 100}, "excess_return_bps": 50,
+}
+
+
+def test_create_and_edit_mandate_model(client, auth):
+    h = auth("pm.santos")
+    r = client.post("/api/v1/models", headers=h,
+                    json={"code": "QA-MANDATE", "name": "QA Mandate Fund", "mandate": MANDATE})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["mandate"]["universe"] == MANDATE["universe"]
+    assert body["active_version"] is None  # no weights yet: the PM optimises, then proposes
+
+    bad = {**MANDATE, "universe": ["MSFT", "NOT_A_SYMBOL"]}
+    r = client.post("/api/v1/models", headers=h, json={"code": "QA-BAD", "name": "Bad symbol", "mandate": bad})
+    assert r.status_code == 422 and "NOT_A_SYMBOL" in r.text
+
+    r = client.put("/api/v1/models/QA-MANDATE/mandate", headers=h, json={**MANDATE, "max_weight_pct": 30})
+    assert r.status_code == 200 and r.json()["mandate"]["max_weight_pct"] == 30
+    r = client.put("/api/v1/models/QA-MANDATE/mandate", headers=h, json={**MANDATE, "universe": ["MSFT", "XYZ"]})
+    assert r.status_code == 422
+    r = client.put("/api/v1/models/QA-MANDATE/mandate", headers=auth("viewer"), json=MANDATE)
+    assert r.status_code == 403
+
+
+def test_blend_must_sum_to_100(client, auth):
+    bad = {**MANDATE, "benchmark_weights": {"MSCIACWI": 60}}
+    r = client.post("/api/v1/models", headers=auth("pm.santos"), json={"code": "QA-BLEND", "name": "Bad blend", "mandate": bad})
+    assert r.status_code == 422

@@ -7,11 +7,16 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..db import get_db
 from ..models import Account, Instrument, ModelPortfolio, ModelVersion, OrderSide, User
-from ..schemas import ModelIn, ModelVersionIn, RebalanceIn
+from ..schemas import MandateIn, ModelIn, ModelVersionIn, RebalanceIn
 from ..security import require
 from ..services.compliance import load_snapshot
 from ..services.rebalance import accounts_for_model, active_version, drift, propose
-from ..services.scenarios import check_mandate, scenario_result
+from ..services.scenarios import (
+    check_mandate,
+    scenario_result,
+    validate_mandate_definition,
+    validate_mandate_weights,
+)
 from ..services.trading import create_order
 from ..services.valuation import Fx
 from .common import get_account
@@ -77,14 +82,38 @@ def optimise_model(code: str, user: User = Depends(require("optimizer:run")), db
 def create_model(body: ModelIn, user: User = Depends(require("model:write")), db: Session = Depends(get_db)):
     if db.query(ModelPortfolio).filter(ModelPortfolio.code == body.code).count():
         raise HTTPException(409, "Model code already exists")
-    ModelVersionIn(weights=body.weights, rationale=body.rationale)  # reuse validation
-    _validate_symbols(db, body.weights)
-    m = ModelPortfolio(code=body.code, name=body.name, benchmark=body.benchmark, tolerance_pct=body.tolerance_pct)
-    m.versions.append(ModelVersion(version=1, weights=body.weights, rationale=body.rationale, status="DRAFT",
-                                   created_by=user.username))
+    mandate = body.mandate.model_dump() if body.mandate else {}
+    if mandate:
+        validate_mandate_definition(db, mandate)
+    if body.weights:
+        ModelVersionIn(weights=body.weights, rationale=body.rationale)  # reuse validation
+        _validate_symbols(db, body.weights)
+        validate_mandate_weights(body.code, mandate, body.weights)
+    m = ModelPortfolio(code=body.code, name=body.name, benchmark=body.benchmark, tolerance_pct=body.tolerance_pct,
+                       mandate=mandate)
+    if body.weights:
+        m.versions.append(ModelVersion(version=1, weights=body.weights, rationale=body.rationale, status="DRAFT",
+                                       created_by=user.username))
     db.add(m)
     db.flush()
-    audit(db, user.username, "MODEL_CREATE", "model", m.code, after={"weights": body.weights})
+    audit(db, user.username, "MODEL_CREATE", "model", m.code, after={"weights": body.weights, "mandate": mandate})
+    db.commit()
+    return model_out(db, m, True)
+
+
+@router.put("/models/{code}/mandate")
+def update_mandate(code: str, body: MandateIn, user: User = Depends(require("model:write")),
+                   db: Session = Depends(get_db)):
+    """Change a model's mandate. The active version must still satisfy the new mandate."""
+    m = _model(db, code)
+    mandate = body.model_dump()
+    validate_mandate_definition(db, mandate)
+    av = active_version(m)
+    if av is not None:
+        validate_mandate_weights(code, mandate, av.weights)
+    before = m.mandate or {}
+    m.mandate = mandate
+    audit(db, user.username, "MANDATE_UPDATE", "model", code, before=before, after=mandate)
     db.commit()
     return model_out(db, m, True)
 

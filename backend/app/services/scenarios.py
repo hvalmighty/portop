@@ -278,16 +278,27 @@ def seed_bdo_scenarios(db: Session) -> dict:
 
 
 def check_mandate(m: ModelPortfolio, weights: dict[str, float]) -> None:
-    """Reject a proposed version that breaks the model's mandate: securities outside the universe, or a weight
-    above the mandate cap. Models without a mandate are unaffected."""
-    mandate = m.mandate or {}
+    """Reject weights that break the model's mandate. Models without a mandate are unaffected."""
+    validate_mandate_weights(m.code, m.mandate or {}, weights)
+
+
+def validate_mandate_weights(code: str, mandate: dict, weights: dict[str, float]) -> None:
     if not mandate.get("universe"):
         return
     outside = sorted(s for s in weights if s != "CASH" and s not in mandate["universe"])
     if outside:
-        raise HTTPException(422, f"{m.code}: securities outside the mandate universe: {', '.join(outside)}")
+        raise HTTPException(422, f"{code}: securities outside the mandate universe: {', '.join(outside)}")
     cap = mandate["max_weight_pct"]
     over = {s: w for s, w in weights.items() if s != "CASH" and w > cap + 1e-9}
     if over:
         detail = ", ".join(f"{s} {w:.2f}%" for s, w in over.items())
-        raise HTTPException(422, f"{m.code}: weights above the {cap:g}% cap ({mandate.get('max_weight_basis')}): {detail}")
+        raise HTTPException(422, f"{code}: weights above the {cap:g}% cap ({mandate.get('max_weight_basis')}): {detail}")
+
+
+def validate_mandate_definition(db: Session, mandate: dict) -> None:
+    """Every universe security and benchmark component must exist in the security master."""
+    syms = set(mandate["universe"]) | set(mandate["benchmark_weights"])
+    found = {s for (s,) in db.query(Instrument.symbol).filter(Instrument.symbol.in_(syms)).all()}
+    missing = sorted(syms - found)
+    if missing:
+        raise HTTPException(422, f"Unknown instruments in mandate: {', '.join(missing)}")

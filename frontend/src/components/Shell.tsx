@@ -17,6 +17,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
       { to: "/portfolio", label: "My Portfolio", perm: "portfolio:read", desc: "Firm-wide cross-asset positions" },
       { to: "/blotter", label: "Order Blotter", perm: "portfolio:read", desc: "Orders, approvals, executions" },
       { to: "/models", label: "Model Portfolios", perm: "portfolio:read", desc: "Models, versions, drift" },
+      { to: "/mandates", label: "Fund Mandates", perm: "portfolio:read", desc: "Define mandates, optimise, propose" },
       { to: "/rebalance", label: "Rebalancing", perm: "portfolio:read", desc: "Drift-based proposals" },
       { to: "/optimizer", label: "Optimizer", perm: "optimizer:run", desc: "Mean-variance & risk parity" },
     ],
